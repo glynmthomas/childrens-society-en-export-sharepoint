@@ -34,7 +34,7 @@ class DataExport
   const DOWNLOAD_TIMEOUT = 180;
   
   /**
-   * The start date for data we want to download.
+   * Dotenv helper to read environment variables from .env file.
    *
    * @var Dotenv
    */
@@ -71,7 +71,6 @@ class DataExport
   /**
    * Constructor.
    *
-   * @param Dotenv $dotenv
    * @param Date $dataFrom
    * @param Date $dataTo
    */
@@ -111,7 +110,7 @@ class DataExport
    *
    * @return string
    */
-  public function download() {
+  private function download() {
     echo 'Downloading from ' . getenv('DATA_SERVICE_URL') . ' for date(s) ' . $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS) . '-' . $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS) . PHP_EOL;
     
     try {
@@ -121,7 +120,7 @@ class DataExport
         'query' => [
           'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
           'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
-          'endDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
+          'endDate' => $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS),
           'type' => getenv('DOWNLOAD_FORMAT'),
         ]
       ]);
@@ -142,7 +141,7 @@ class DataExport
     $fileContents = (string) $response->getBody();
     
     if (strpos($fileContents, 'ERROR:') !== false || strpos($fileContents, 'Data can only be exported') !== false) {
-      $this->log('Download error: ' . 'The data contains an error message from Engaging Networks');
+      $this->log('Download error: The data contains an error message from Engaging Networks');
       mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
     }
     
@@ -155,7 +154,7 @@ class DataExport
    * @param string $fileContents
    * @return boolean
    */
-  public function upload($fileContents) {   
+  private function upload($fileContents) {   
     if (!$this->sftp->login(getenv('UPLOAD_SFTP_USERNAME'), getenv('UPLOAD_SFTP_PASSWORD'))) {
       $this->log('Upload error: could not log in to SFTP site.');
       mail(getenv('ERROR_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
