@@ -2,7 +2,7 @@
 
 namespace EngagingNetworksDataExport;
 
-require_once 'vendor/autoload.php';
+require_once '../../vendor/autoload.php';
 
 use \DateInterval;
 use \DateTime;
@@ -114,16 +114,16 @@ class DataExport
     echo 'Downloading from ' . getenv('DATA_SERVICE_URL') . ' for date(s) ' . $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS) . '-' . $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS) . PHP_EOL;
     
     try {
-      $response = $this->client->request('GET', getenv('DATA_SERVICE_URL'), [
+      $response = $this->client->request('GET', getenv('DATA_SERVICE_URL'), array(
         'http_errors' => false,
         'timeout' => self::DOWNLOAD_TIMEOUT,
-        'query' => [
+        'query' => array(
           'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
           'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
           'endDate' => $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS),
           'type' => getenv('DOWNLOAD_FORMAT'),
-        ]
-      ]);
+        )
+      ));
     } catch (\Exception $exception) {
       $this->log('Download error: ' . $exception->getMessage());
       mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
@@ -201,7 +201,7 @@ class DataExport
    * @return Date
    */
   private function yesterday() {
-    $date = new DateTime();
+    $date = new DateTime('UTC');
     $date->add(DateInterval::createFromDateString('yesterday'));
     
     return $date;
