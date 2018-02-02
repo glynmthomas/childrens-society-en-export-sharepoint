@@ -90,7 +90,13 @@ class DataExport
       $uploadSuccess = $this->upload($downloadedFile);
     }
     
-    echo $downloadedFile && isset($uploadSuccess) && $uploadSuccess ? 'Success!' : 'Fail!';
+    if ($downloadedFile && isset($uploadSuccess) && $uploadSuccess) {
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('SUCCESS_SUBJECT'), getenv('SUCCESS_MSG') . ' ' . $this->dataFrom->format(self::DATE_FORMAT_UPLOADS) . '-' . $this->dataTo->format(self::DATE_FORMAT_UPLOADS));
+      echo 'Success!';
+    } else {
+      echo 'Fail!';
+    }
+    
     echo PHP_EOL;
   }
 
@@ -113,7 +119,7 @@ class DataExport
       $data = $this->getRemoteData(getenv('DATA_SERVICE_URL') . '?' . http_build_query($parameters));
     } catch (\Exception $exception) {
       $this->log('Download error: ' . $exception->getMessage());
-      mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
       
       return '';
     }
@@ -126,7 +132,7 @@ class DataExport
     
     if (strpos($fileContents, 'ERROR:') !== false || strpos($fileContents, 'Data can only be exported') !== false) {
       $this->log('Download error: The data contains an error message from Engaging Networks');
-      mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
     }
     
     return $fileContents;
@@ -141,7 +147,7 @@ class DataExport
   private function upload($fileContents) {   
     if (!$this->sftp->login(getenv('UPLOAD_SFTP_USERNAME'), getenv('UPLOAD_SFTP_PASSWORD'))) {
       $this->log('Upload error: could not log in to SFTP site.');
-      mail(getenv('ERROR_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
       
       return false;
     }
@@ -159,7 +165,7 @@ class DataExport
     
     if (!$uploadSuccess) {
       $this->log('Upload error: could not upload file to SFTP site.');
-      mail(getenv('ERROR_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
     }
     
     return $uploadSuccess;
@@ -253,7 +259,7 @@ class DataExport
       }
     
       $this->log('Download error: ' . json_encode($status));
-      mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
     
       return null;
   }
