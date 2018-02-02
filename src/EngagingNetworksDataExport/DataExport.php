@@ -102,18 +102,7 @@ class DataExport
   private function download() {
     echo 'Downloading from ' . getenv('DATA_SERVICE_URL') . ' for date(s) ' . $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS) . '-' . $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS) . PHP_EOL;
     
-    try {
-//       $response = $this->client->request('GET', getenv('DATA_SERVICE_URL'), array(
-//         'http_errors' => false,
-//         'timeout' => self::DOWNLOAD_TIMEOUT,
-//         'query' => array(
-//           'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
-//           'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
-//           'endDate' => $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS),
-//           'type' => getenv('DOWNLOAD_FORMAT'),
-//         )
-//       ));
-      
+    try {      
       $parameters = array(
         'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
         'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
