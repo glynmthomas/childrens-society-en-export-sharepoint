@@ -2,12 +2,11 @@
 
 namespace EngagingNetworksDataExport;
 
-require_once '../../vendor/autoload.php';
+require_once './../vendor/autoload.php';
 
 use \DateInterval;
 use \DateTime;
 use Dotenv\Dotenv;
-use GuzzleHttp\Client;
 use phpseclib\Net\SFTP;
 
 class DataExport
@@ -41,13 +40,6 @@ class DataExport
   private $dotenv;
   
   /**
-   * Guzzle HTTP client.
-   *
-   * @var Client
-   */
-  private $client;
-  
-  /**
    * PHPSecLib SFTP client.
    *
    * @var SFTP
@@ -75,15 +67,12 @@ class DataExport
    * @param Date $dataTo
    */
   public function __construct($dataFrom = null, $dataTo = null)
-  {
+  {    
     $this->dataFrom = $dataFrom ? $dataFrom : $this->yesterday();
     $this->dataTo = $dataTo ? $dataTo : $this->yesterday();
     
     $dotenv = new Dotenv(__DIR__ . '/../../');
     $dotenv->load();
-    
-    $client = new Client();
-    $this->client = $client;
     
     $sftp = new SFTP(getenv('UPLOAD_SFTP_SERVER'));
     $this->sftp = $sftp;
@@ -114,16 +103,25 @@ class DataExport
     echo 'Downloading from ' . getenv('DATA_SERVICE_URL') . ' for date(s) ' . $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS) . '-' . $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS) . PHP_EOL;
     
     try {
-      $response = $this->client->request('GET', getenv('DATA_SERVICE_URL'), array(
-        'http_errors' => false,
-        'timeout' => self::DOWNLOAD_TIMEOUT,
-        'query' => array(
-          'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
-          'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
-          'endDate' => $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS),
-          'type' => getenv('DOWNLOAD_FORMAT'),
-        )
-      ));
+//       $response = $this->client->request('GET', getenv('DATA_SERVICE_URL'), array(
+//         'http_errors' => false,
+//         'timeout' => self::DOWNLOAD_TIMEOUT,
+//         'query' => array(
+//           'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
+//           'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
+//           'endDate' => $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS),
+//           'type' => getenv('DOWNLOAD_FORMAT'),
+//         )
+//       ));
+      
+      $parameters = array(
+        'token' => getenv('ENGAGING_NETWORKS_TOKEN'),
+        'startDate' => $this->dataFrom->format(self::DATE_FORMAT_DOWNLOADS),
+        'endDate' => $this->dataTo->format(self::DATE_FORMAT_DOWNLOADS),
+        'type' => getenv('DOWNLOAD_FORMAT')
+      );
+
+      $data = $this->getRemoteData(getenv('DATA_SERVICE_URL') . '?' . http_build_query($parameters));
     } catch (\Exception $exception) {
       $this->log('Download error: ' . $exception->getMessage());
       mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
@@ -131,14 +129,11 @@ class DataExport
       return '';
     }
     
-    if ($response->getStatusCode() !== 200) {
-      $this->log('Download error: ' . $response->getReasonPhrase());
-      mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
-      
+    if (!$data) {
       return '';
     }
     
-    $fileContents = (string) $response->getBody();
+    $fileContents = (string) $data;
     
     if (strpos($fileContents, 'ERROR:') !== false || strpos($fileContents, 'Data can only be exported') !== false) {
       $this->log('Download error: The data contains an error message from Engaging Networks');
@@ -205,5 +200,72 @@ class DataExport
     $date->add(DateInterval::createFromDateString('yesterday'));
     
     return $date;
+  }
+  
+  /**
+   * Get a file over http using cURL.
+   * See updates and explanation at: https://github.com/tazotodua/useful-php-scripts/
+   *
+   * @param string $url
+   * @param string $postParameters
+   * @return mixed
+   */
+  function getRemoteData($url, $postParameters=false)
+  {
+      $c = curl_init();
+    
+      curl_setopt($c, CURLOPT_URL, $url);
+      curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
+      if($postParameters) {
+          curl_setopt($c, CURLOPT_POST,TRUE);
+          curl_setopt($c, CURLOPT_POSTFIELDS, $postParameters);
+      }
+      curl_setopt($c, CURLOPT_SSL_VERIFYHOST,false);
+      curl_setopt($c, CURLOPT_SSL_VERIFYPEER,false);
+      curl_setopt($c, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:33.0) Gecko/20100101 Firefox/33.0");
+      curl_setopt($c, CURLOPT_COOKIE, 'CookieName1=Value;');
+      curl_setopt($c, CURLOPT_MAXREDIRS, 10);
+      $follow_allowed= ( ini_get('open_basedir') || ini_get('safe_mode')) ? false:true;
+      if ($follow_allowed)
+      {
+          curl_setopt($c, CURLOPT_FOLLOWLOCATION, 1);
+      }
+      curl_setopt($c, CURLOPT_CONNECTTIMEOUT, 9);
+      curl_setopt($c, CURLOPT_REFERER, $url);
+      curl_setopt($c, CURLOPT_TIMEOUT, 60);
+      curl_setopt($c, CURLOPT_AUTOREFERER, true);
+      curl_setopt($c, CURLOPT_ENCODING, 'gzip,deflate');
+    
+      $data=curl_exec($c);
+      $status=curl_getinfo($c);
+    
+      curl_close($c);
+    
+      preg_match('/(http(|s)):\/\/(.*?)\/(.*\/|)/si',  $status['url'],$link);
+      $data=preg_replace('/(src|href|action)=(\'|\")((?!(http|https|javascript:|\/\/|\/)).*?)(\'|\")/si','$1=$2'.$link[0].'$3$4$5', $data);   $data=preg_replace('/(src|href|action)=(\'|\")((?!(http|https|javascript:|\/\/)).*?)(\'|\")/si','$1=$2'.$link[1].'://'.$link[3].'$3$4$5', $data);
+    
+      if($status['http_code'] == 200) {
+          return $data;
+      } elseif($status['http_code'] == 301 || $status['http_code'] == 302) {
+          if (!$follow_allowed) {
+              if (!empty($status['redirect_url'])) {
+                  $redirURL=$status['redirect_url'];
+              }
+              else {
+                  preg_match('/href\=\"(.*?)\"/si',$data,$m);
+                  if (!empty($m[1])) {
+                      $redirURL=$m[1];
+                  }
+              }
+              if(!empty($redirURL)) {
+                  return call_user_func( __FUNCTION__, $redirURL, $postParameters);
+              }
+          }
+      }
+    
+      $this->log('Download error: ' . json_encode($status));
+      mail(getenv('ERROR_EMAIL'), getenv('ERROR_DOWNLOAD_SUBJECT'), getenv('ERROR_DOWNLOAD_MSG'));
+    
+      return null;
   }
 }
