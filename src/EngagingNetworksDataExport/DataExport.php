@@ -38,8 +38,7 @@ class DataExport
    *
    * @const string
    */
-  const UPLOAD_URL = "/_api/web/getfolderbyserverrelativeurl('/Shared%20Documents/FundM/SUPIN/Engaging%20Networks%20Data')/Files/Add(url='[filename]',overwrite=true)";
-//   const UPLOAD_URL = "/_api/Web/GetFolderByServerRelativeUrl('/FundM/SUPIN/Engaging%20Networks%20Data')/Files";
+  const UPLOAD_URL = "/_api/web/lists/GetByTitle('[listname]')/rootfolder/files/add(url='[filename]',overwrite=true)";
   
   /**
    * Date format for download requests.
@@ -103,22 +102,11 @@ class DataExport
    *
    * @return void
    */
-  public function handle() {
-    $username = getenv('UPLOAD_SHAREPOINT_USERNAME');
-    $password = getenv('UPLOAD_SHAREPOINT_PASSWORD');
-    $host = 'https://thechildrenssociety.sharepoint.com';
-
-    $token = $this->getSecurityToken($username, $password, $host);
-    $authCookies = $this->getAuthCookies($token, $host);
-    $requestDigest = $this->getRequestDigest($authCookies);
-    $this->uploadToSharepoint($authCookies, $requestDigest, 'testfile.csv', 'blah some content');
-//     var_dump($token, $authCookies, $requestDigest);
-    exit;
-    
+  public function handle() {    
     $downloadedFile = $this->download();
     
     if ($downloadedFile) {
-      $uploadSuccess = $this->upload($downloadedFile);
+      $uploadSuccess = $this->uploadToSharepoint($downloadedFile);
     }
     
     if ($downloadedFile && isset($uploadSuccess) && $uploadSuccess) {
@@ -170,18 +158,29 @@ class DataExport
   }
   
   /**
-   * Upload data file to SFTP server.
+   * Generate filename.
    *
-   * @param string $fileContents
-   * @return boolean
+   * @return string
    */
-  private function upload($fileContents) {   
+  private function generateFilename() {   
     if ($this->dataFrom == $this->dataTo) {
       $filename = $this->dataFrom->format(self::DATE_FORMAT_UPLOADS);
     } else {
       $filename = $this->dataFrom->format(self::DATE_FORMAT_UPLOADS) . '-' . $this->dataTo->format(self::DATE_FORMAT_UPLOADS);
     }
     $filename = $filename . getenv('UPLOAD_FILE_EXTENSION');
+    
+    return $filename;
+  }
+  
+  /**
+   * Upload data file to SFTP server.
+   *
+   * @param string $fileContents
+   * @return boolean
+   */
+  private function uploadToSFTP($fileContents) {   
+    $filename = $this->generateFilename();
     
     echo 'Uploading ' . $filename . PHP_EOL;
 
@@ -299,117 +298,121 @@ class DataExport
    */
   function uploadFile($filename, $fileContents)
   {
-    $username = getenv('UPLOAD_SHAREPOINT_USERNAME');
-    $password = getenv('UPLOAD_SHAREPOINT_PASSWORD');
-    $ch = curl_init();
-
-    curl_setopt($ch, CURLOPT_HEADER, 0);
-    curl_setopt($ch, CURLOPT_VERBOSE, 0);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array("Content-type: multipart/form-data"));
-    curl_setopt($ch, CURLOPT_USERPWD, "$username:$password");
-    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (X11; Linux i686; rv:6.0) Gecko/20100101 Firefox/6.0Mozilla/4.0 (compatible;)");
-    curl_setopt($ch, CURLOPT_URL, getenv('UPLOAD_SHAREPOINT_FOLDER_URL'));
-
-    curl_setopt($ch, CURLOPT_POST, true);
-
-    $post = array(
+    $url = getenv('UPLOAD_SHAREPOINT_FOLDER_URL');
+    $httpHeader = array('Content-type: multipart/form-data');
+    $postFields = array(
       'file_contents' => $fileContents,
       'file_name' => $filename
     );
+    $username = getenv('UPLOAD_SHAREPOINT_USERNAME');
+    $password = getenv('UPLOAD_SHAREPOINT_PASSWORD');
+    
+    $response = $this->curlRequest(false, false, true, $url, true, $postFields, $httpHeader, $username, $password);
+    
+    return $result === false ? false : true;
+  }
+  
+  /**
+   * Make a request using cURL.
+   *
+   * @param bool $header
+   * @param bool $verbose
+   * @param bool $returnTransfer
+   * @param string $url
+   * @param bool $post
+   * @param mixed $postFields
+   * @param array $httpHeader
+   * @param string $username
+   * @param string $password
+   * @return boolean
+   */
+  function curlRequest($header, $verbose, $returnTransfer, $url, $post, $postFields, $httpHeader = null, $username = null, $password = null)
+  {
+    $ch = curl_init();
 
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (X11; Linux i686; rv:6.0) Gecko/20100101 Firefox/6.0Mozilla/4.0 (compatible;)");
+    curl_setopt($ch, CURLOPT_HEADER, $header);
+    curl_setopt($ch, CURLOPT_VERBOSE, $verbose);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, $returnTransfer);
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POST, $post);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
+    
+    if (isset($httpHeader)) {
+      curl_setopt($ch, CURLOPT_HTTPHEADER, $httpHeader);
+    }
+    if ($username && $password) {
+      curl_setopt($ch, CURLOPT_USERPWD, "$username:$password");
+    }
 
     $response = curl_exec($ch);
+    $error = curl_errno($ch);
+      
+    curl_close($ch);
 
-    if(curl_errno($ch)) {
-      echo json_encode('Error: ' . curl_error($ch));
+    if($error) {
       return false;
-    }
-    else {
-      echo json_encode($response);
-      return true;
+    } else {
+      return $response;
     }
   }
   
   /**
-   * Get the FedAuth and rtFa cookies
+   * Get node from XML
    * 
-   * @param string $token
-   * @param string $host
-   * @return array
-   * @throws Exception
-   */
-  function getAuthCookies($token, $host) {
-    $url = $host . self::ACCESS_TOKEN_REQUEST_URL;
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $token);   
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HEADER, true); 
-
-    $result = curl_exec($ch);
-
-    // catch error
-    if($result === false) {
-      throw new Exception('Curl error: ' . curl_error($ch));
-    }
-
-    //close connection
-    curl_close($ch);      
-
-    return $this->getCookieValue($result);
-  }
-
-  /**
-   * Get the security token needed
-   * 
-   * @param string $username
-   * @param string $password
-   * @param string $endpoint
+   * @param string $xmlString
+   * @param string $query
    * @return string
-   * @throws Exception
    */
-  function getSecurityToken($username, $password, $endpoint) {
-    $tokenXml = $this->getSecurityTokenXml($username, $password, $endpoint);
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, self::SECURITY_REQUEST_URL);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $tokenXml);   
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $result = curl_exec($ch);
-
-    // catch error
-    if($result === false) {
-        throw new Exception('Curl error: ' . curl_error($ch));
-    }
-
-    //close connection
-    curl_close($ch);
-
-    // Parse security token from response
+  function getXMLNode($xmlString, $query) {
     $xml = new DOMDocument();
-    $xml->loadXML($result);
+    $xml->loadXML($xmlString);
     $xpath = new DOMXPath($xml);
-    $nodelist = $xpath->query("//wsse:BinarySecurityToken");
+    $nodelist = $xpath->query($query);
     foreach ($nodelist as $n){
       return $n->nodeValue;
       break;
     }
   }
+  
+  /**
+   * Get the Sharepoint FedAuth and rtFa cookies
+   * 
+   * @param string $token
+   * @return array
+   * @throws Exception
+   */
+  function getSharepointAuthCookies($token) {
+    $url = getenv('UPLOAD_SHAREPOINT_BASE_URL') . self::ACCESS_TOKEN_REQUEST_URL;
+    
+    $result = $this->curlRequest(true, false, true, $url, true, $token);
+
+    return $result === false ? false : $this->getCookieValue($result);
+  }
+
+  /**
+   * Get the security token needed
+   * 
+   * @return mixed
+   */
+  function getSharepointSecurityToken() {
+    $tokenXml = $this->getSharepointSecurityTokenXml(
+      getenv('UPLOAD_SHAREPOINT_USERNAME'),
+      getenv('UPLOAD_SHAREPOINT_PASSWORD'),
+      getenv('UPLOAD_SHAREPOINT_BASE_URL')
+    );
+    
+    $result = $this->curlRequest(false, false, true, self::SECURITY_REQUEST_URL, true, $tokenXml);
+    
+    return $result === false ? false : $this->getXMLNode($result, '//wsse:BinarySecurityToken');
+  }
 
   /**
    * Get the XML to request the security token
    * 
-   * @param string $username
-   * @param string $password
-   * @param string $endpoint
    * @return type string
    */
-  function getSecurityTokenXml($username, $password, $endpoint) {
+  function getSharepointSecurityTokenXml() {
     $file = fopen('securityTokenRequest.xml', 'r') or die('Unable to open Security Token Request file!');
     $xml = fread($file, filesize('securityTokenRequest.xml'));
     fclose($file);
@@ -425,7 +428,7 @@ class DataExport
    * Get the cookie value from the http header
    *
    * @param string $header
-   * @return array 
+   * @return mixed 
    */
   function getCookieValue($header)
   {
@@ -446,84 +449,77 @@ class DataExport
    * Get the Sharepoint request digest
    *
    * @param array $authCookies
-   * @return array 
+   * @return mixed 
    */
-  function getRequestDigest($authCookies)
+  function getSharepointRequestDigest($authCookies)
   {
-    $url = getenv('UPLOAD_SHAREPOINT_BASE_URL') . self::REQUEST_DIGEST_URL;
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:33.0) Gecko/20100101 Firefox/33.0");
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, null);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+    $url = getenv('UPLOAD_SHAREPOINT_BASE_URL') . getenv('UPLOAD_SHAREPOINT_SITE_URL') . self::REQUEST_DIGEST_URL;
+    $httpHeader = array(
       'Content-type: multipart/form-data',
       'Cookie: ' . $authCookies[0] . ';' . $authCookies[1]
-    ));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    );
+    
+    $result = $this->curlRequest(false, false, true, $url, true, null, $httpHeader);
 
-    $result = curl_exec($ch);
-
-    // Catch error
-    if($result === false) {
-      throw new Exception('Curl error: ' . curl_error($ch));
-    }
-
-    // Close connection
-    curl_close($ch);
-
-    // Parse security token from response
-    $xml = new DOMDocument();
-    $xml->loadXML($result);
-    $xpath = new DOMXPath($xml);
-    $nodelist = $xpath->query("//d:FormDigestValue");
-    foreach ($nodelist as $n){
-      return $n->nodeValue;
-      break;
-    }
+    return $result === false ? false : $this->getXMLNode($result, '//d:FormDigestValue');
   }
   
   /**
    * Upload file to Sharepoint
    *
-   * @param array $authCookies
-   * @param string $requestDigest
-   * @param string $filename
    * @param string $fileContent
    * @return boolean 
    */
-  function uploadToSharepoint($authCookies, $requestDigest, $filename, $fileContent)
+  function uploadToSharepoint($fileContent)
   {
-    $url = getenv('UPLOAD_SHAREPOINT_BASE_URL') . self::UPLOAD_URL;
+    $token = $this->getSharepointSecurityToken();
+    if ($token === false) {
+      $this->log('Upload error: could not get Sharepoint security token.');
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
+      
+      return false;
+    }
+    
+    $authCookies = $this->getSharepointAuthCookies($token);
+    if ($authCookies === false) {
+      $this->log('Upload error: could not get Sharepoint authentication cookies.');
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
+      
+      return false;
+    }
+    
+    $requestDigest = $this->getSharepointRequestDigest($authCookies);
+    if ($requestDigest === false) {
+      $this->log('Upload error: could not get Sharepoint request digest.');
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
+      
+      return false;
+    }
+    
+    $filename = $this->generateFilename();
+    
+    $url = getenv('UPLOAD_SHAREPOINT_BASE_URL') . getenv('UPLOAD_SHAREPOINT_SITE_URL') . self::UPLOAD_URL;
+    $url = str_replace('[listname]', getenv('UPLOAD_SHAREPOINT_LIST'), $url);
     $url = str_replace('[filename]', $filename, $url);
-    var_dump($url);
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:33.0) Gecko/20100101 Firefox/33.0");
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $fileContent);
-    curl_setopt($ch, CURLOPT_VERBOSE, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-      'Content-Type: multipart/form-data',
+    
+    $httpHeader = array(
+      'Content-Type: application/x-www-form-urlencoded',
       'Cookie: ' . $authCookies[0] . ';' . $authCookies[1],
       'accept: application/json;odata=verbose',
       'X-RequestDigest: ' . $requestDigest
-    ));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-    $result = curl_exec($ch);
+    );
     
-    curl_close($ch);
+    echo 'Uploading ' . $filename . PHP_EOL;
     
-    var_dump($result);
-
-    // Catch error
-    if($result === false) {
+    $result = $this->curlRequest(false, false, true, $url, true, $fileContent, $httpHeader);
+    
+    if ($result === false) {
+      $this->log('Upload error: could not upload file to Sharepoint.');
+      mail(getenv('NOTIFICATION_EMAIL'), getenv('ERROR_UPLOAD_SUBJECT'), getenv('ERROR_UPLOAD_MSG'));
+      
       return false;
     }
-
+    
     return true;
   }
 }
